@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-
+from app.routers.bounded_rate.basic_operations import router as bounded_rate_router
 # 1. Instanciamos la aplicación pura
 app = FastAPI(
     title="PRIME4API",
@@ -15,3 +15,5 @@ def health_check():
 # 3. Aquí es donde "enchufaremos" las rutas reales más adelante
 # app.include_router(datasheets_router, prefix="/api/v1/datasheets", tags=["Datasheets"])
 # app.include_router(operations_router, prefix="/api/v1/operations", tags=["Operations"])
+
+app.include_router(bounded_rate_router, prefix="/api/v1/bounded-rate", tags=["Bounded Rate"])

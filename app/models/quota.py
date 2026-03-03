@@ -1,19 +1,30 @@
+from typing import Annotated, Any
+from pydantic import BaseModel, BeforeValidator, PlainSerializer, WithJsonSchema
 from app.engine.time_models import TimeDuration
-from pydantic import BaseModel, field_validator, ConfigDict
-from app.utils.time_utils import parse_time_string_to_duration
+from app.utils.time_utils import parse_time_string_to_duration, format_time_with_unit
+
+def parse_time(v: Any) -> TimeDuration:
+    if isinstance(v, str):
+        return parse_time_string_to_duration(v.strip())
+    if isinstance(v, TimeDuration):
+        return v
+    raise ValueError("Period must be a string or TimeDuration")
+
+def serialize_time(v: TimeDuration) -> str:
+    return format_time_with_unit(v)
+
+PydanticTimeDuration = Annotated[
+    Any,
+    BeforeValidator(parse_time),
+    PlainSerializer(serialize_time, return_type=str),
+    WithJsonSchema({'type': 'string', 'example': '1 month'})
+]
 
 class Quota(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
     value: int
     unit: str
-    period: TimeDuration
-    
-    @field_validator("period", mode="before")
-    @classmethod
-    def parse_period(cls, period_value):
-        if isinstance(period_value, str):
-            return parse_time_string_to_duration(period_value.strip())
-        return period_value
+    period: PydanticTimeDuration
+
 
 
 

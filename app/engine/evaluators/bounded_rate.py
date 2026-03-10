@@ -1,6 +1,7 @@
 from typing import Optional
 from app.utils import format_time_with_unit
 from app.utils import parse_time_string_to_duration
+from app.utils import select_best_time_unit
 from app.engine import TimeUnit
 from app.engine import TimeDuration
 from typing import Union, List
@@ -139,15 +140,41 @@ class BoundedRate:
         return format_time_with_unit(duration_desired) if display else duration_desired
 
 
-    def quota_exhaustion_threshold(self,display=True) -> List[Union[str, TimeDuration]]:
-        exhaustion_thresholds = []
+    def quota_exhaustion_threshold(self, display=True):
+        results = []
 
-        # Iterar sobre los límites superiores (todos excepto el base)
         for limit in self.limits[1:]:
-            exhaustion_thresholds.append(self.min_time(limit.value, display=display))
- 
-        return exhaustion_thresholds[0] if len(exhaustion_thresholds) == 1 else exhaustion_thresholds
+            threshold = self.min_time(limit.value, display=display)
+            results.append((limit, threshold))
 
+        return results
+
+    def idle_time_period(self, display=True):
+        results = []
+
+        for limit in self.limits[1:]:
+            # Exhaustion threshold en ms
+            exhaustion = self.min_time(limit.value, display=False)
+            if isinstance(exhaustion, str):  # caso "0s"
+                exhaustion_ms = 0
+            else:
+                exhaustion_ms = exhaustion.to_milliseconds()
+
+            # Periodo del límite en ms
+            period_ms = limit.period.to_milliseconds()
+
+            # Idle = periodo - exhaustion
+            idle_ms = period_ms - exhaustion_ms
+
+            if display:
+                best = select_best_time_unit(idle_ms)
+                idle_value = format_time_with_unit(best)
+            else:
+                idle_value = TimeDuration(idle_ms, TimeUnit.MILLISECOND)
+
+            results.append((limit, idle_value))
+
+        return results
 
 if __name__ == "__main__":
     # Case 1: Only Rate

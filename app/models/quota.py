@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 from pydantic import BaseModel, BeforeValidator, PlainSerializer, WithJsonSchema
 from app.engine.time_models import TimeDuration
 from app.utils.time_utils import parse_time_string_to_duration, format_time_with_unit
@@ -20,10 +20,17 @@ PydanticTimeDuration = Annotated[
     WithJsonSchema({'type': 'string', 'example': '1 month'})
 ]
 
+
+class OverageCost(BaseModel):
+    price: float = 0.0
+    value: float = 1.0
+
+
 class Quota(BaseModel):
     value: float
     unit: str
     period: PydanticTimeDuration
+    overage_cost: Optional[OverageCost] = None
 
 
 

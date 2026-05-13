@@ -1,11 +1,13 @@
 from fastapi import APIRouter, HTTPException, Query, Response
-from typing import Optional
+from typing import Optional, List
 import json
 
 from app.schemas.datasheet import DatasheetBaseRequest, DatasheetCurveSeries, DatasheetCurveDataResponse
 from app.schemas.datasheet import EvaluateDatasheetRequest
 from app.services.datasheet_evaluator_service import DatasheetEvaluatorService
 from app.services.capacity_curve_service import CapacityCurveService
+from app.services.budget_service import BudgetService
+from app.models import Quota
 from app.utils.yaml_utils import load_yaml_source
 from app.utils.plotly_renderer import render_multi_curve_html
 from app.utils.time_utils import parse_time_string_to_duration, select_best_time_unit
@@ -13,16 +15,20 @@ from app.utils.time_utils import parse_time_string_to_duration, select_best_time
 router = APIRouter()
 evaluator_service = DatasheetEvaluatorService()
 curve_service = CapacityCurveService()
+budget_service = BudgetService()
 
 _CURVE_QUERY = dict(description="Time window for the curve (e.g. '1day', '1month')")
 _UNIT_QUERY  = dict(description="Filter to a single dimension (e.g. 'emails', 'requests'). Returns all if omitted.")
 _CRF_QUERY   = dict(description="Fixed workload per unit. Plain number (e.g. '500') requires capacity_unit. JSON dict (e.g. '{\"emails\":500,\"MBs\":0.256}') sets multiple units at once.")
+_PROVIDER_MODE_QUERY = Query(False, description="Provider-centric semantics: capacity is counted at the end of each period window instead of the start. Default: False (client-centric).")
+_MAX_BUDGET_QUERY = Query(None, description="Optional budget. Elastic quotas (those with overage_cost) are expanded as far as the budget allows after paying the plan price.")
+_EXCLUDE_PLAN_QUERY = Query(False, description="If True, treat max_budget as pure overage budget (plan price already covered).")
 
 
 def _build_nav_request(base: DatasheetBaseRequest) -> EvaluateDatasheetRequest:
     return EvaluateDatasheetRequest(
         datasheet_source=base.datasheet_source,
-        plan_name=base.plan_name,
+        plan_names=base.plan_names,
         endpoint_path=base.endpoint_path,
         alias=base.alias,
         operation="__nav__",
@@ -65,16 +71,32 @@ def _series_label(sc: dict) -> str:
     return f"{sc['plan']} / {sc['endpoint']}{alias} — {sc['dimension']}{crf}"
 
 
-def _get_curve_points(sc: dict, time_interval: str, curve_type: str):
+def _get_curve_points(sc: dict, time_interval: str, curve_type: str, provider_mode: bool = False):
     rates  = sc["rates"]  if sc["rates"]  else None
     quotas = sc["quotas"] if sc["quotas"] else None
     if curve_type == "accumulated":
-        return curve_service.get_accumulated_capacity_curve(time_interval, rates, quotas)
-    return curve_service.get_inflection_point_capacity_curve(time_interval, rates, quotas)
+        return curve_service.get_accumulated_capacity_curve(time_interval, rates, quotas, provider_mode=provider_mode)
+    return curve_service.get_inflection_point_capacity_curve(time_interval, rates, quotas, provider_mode=provider_mode)
 
 
-def _render_chart(base, time_interval, capacity_unit, capacity_request_factor, curve_type, line_shape):
-    data = _render_data(base, time_interval, capacity_unit, capacity_request_factor, curve_type)
+def _apply_budget_to_scenarios(yaml_data: dict, scenarios: list, max_budget: Optional[float], exclude_plan_price: bool) -> list:
+    """Expands elastic quotas in every scenario using plan-level pricing."""
+    if max_budget is None:
+        return scenarios
+    result = []
+    for sc in scenarios:
+        pricing = evaluator_service.get_plan_pricing(yaml_data, sc["plan"])
+        expanded, _, _ = budget_service.expand_quotas(
+            sc["quotas"], pricing["price"], max_budget, exclude_plan_price
+        )
+        result.append({**sc, "quotas": expanded})
+    return result
+
+
+def _render_chart(base, time_interval, capacity_unit, capacity_request_factor, curve_type, line_shape,
+                  provider_mode: bool = False, max_budget: Optional[float] = None, exclude_plan_price: bool = False):
+    data = _render_data(base, time_interval, capacity_unit, capacity_request_factor, curve_type,
+                        provider_mode, max_budget, exclude_plan_price)
 
     series_list = [
         {
@@ -96,11 +118,13 @@ def _render_chart(base, time_interval, capacity_unit, capacity_request_factor, c
         raise ValueError("No valid curves could be generated for the given parameters.")
 
     x_unit_label, x_scale_divisor = _time_axis_params(time_interval)
-    title = f"{'Accumulated' if curve_type == 'accumulated' else 'Inflection Point'} Capacity Curve — {time_interval}"
+    budget_tag = f" | budget ${max_budget}" if max_budget is not None else ""
+    title = f"{'Accumulated' if curve_type == 'accumulated' else 'Inflection Point'} Capacity Curve — {time_interval}{budget_tag}"
     return render_multi_curve_html(series_list, title, line_shape, x_unit_label, x_scale_divisor)
 
 
-def _render_data(base, time_interval, capacity_unit, capacity_request_factor, curve_type):
+def _render_data(base, time_interval, capacity_unit, capacity_request_factor, curve_type,
+                 provider_mode: bool = False, max_budget: Optional[float] = None, exclude_plan_price: bool = False):
     yaml_data = load_yaml_source(base.datasheet_source)
     scenarios = evaluator_service.get_curve_scenarios(
         yaml_data,
@@ -108,11 +132,12 @@ def _render_data(base, time_interval, capacity_unit, capacity_request_factor, cu
         capacity_unit=capacity_unit,
         capacity_request_factor=_parse_crf(capacity_unit, capacity_request_factor),
     )
+    scenarios = _apply_budget_to_scenarios(yaml_data, scenarios, max_budget, exclude_plan_price)
 
     series = []
     for sc in scenarios:
         try:
-            pts = _get_curve_points(sc, time_interval, curve_type)
+            pts = _get_curve_points(sc, time_interval, curve_type, provider_mode)
             series.append(DatasheetCurveSeries(
                 plan=sc["plan"],
                 endpoint=sc["endpoint"],
@@ -146,9 +171,13 @@ def get_accumulated_data(
     time_interval: str = Query(..., **_CURVE_QUERY),
     capacity_unit: Optional[str] = Query(None, **_UNIT_QUERY),
     capacity_request_factor: Optional[str] = Query(None, **_CRF_QUERY),
+    max_budget: Optional[float] = _MAX_BUDGET_QUERY,
+    exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
+    provider_mode: bool = _PROVIDER_MODE_QUERY,
 ):
     try:
-        return _render_data(request, time_interval, capacity_unit, capacity_request_factor, "accumulated")
+        return _render_data(request, time_interval, capacity_unit, capacity_request_factor, "accumulated",
+                            provider_mode, max_budget, exclude_plan_price)
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -162,9 +191,13 @@ def get_inflection_data(
     time_interval: str = Query(..., **_CURVE_QUERY),
     capacity_unit: Optional[str] = Query(None, **_UNIT_QUERY),
     capacity_request_factor: Optional[str] = Query(None, **_CRF_QUERY),
+    max_budget: Optional[float] = _MAX_BUDGET_QUERY,
+    exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
+    provider_mode: bool = _PROVIDER_MODE_QUERY,
 ):
     try:
-        return _render_data(request, time_interval, capacity_unit, capacity_request_factor, "inflection")
+        return _render_data(request, time_interval, capacity_unit, capacity_request_factor, "inflection",
+                            provider_mode, max_budget, exclude_plan_price)
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -185,9 +218,13 @@ def get_accumulated_chart(
     time_interval: str = Query(..., **_CURVE_QUERY),
     capacity_unit: Optional[str] = Query(None, **_UNIT_QUERY),
     capacity_request_factor: Optional[str] = Query(None, **_CRF_QUERY),
+    max_budget: Optional[float] = _MAX_BUDGET_QUERY,
+    exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
+    provider_mode: bool = _PROVIDER_MODE_QUERY,
 ):
     try:
-        html = _render_chart(request, time_interval, capacity_unit, capacity_request_factor, "accumulated", "hv")
+        html = _render_chart(request, time_interval, capacity_unit, capacity_request_factor, "accumulated", "hv",
+                             provider_mode, max_budget, exclude_plan_price)
         return Response(content=html, media_type="text/html")
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -205,9 +242,13 @@ def get_inflection_chart(
     time_interval: str = Query(..., **_CURVE_QUERY),
     capacity_unit: Optional[str] = Query(None, **_UNIT_QUERY),
     capacity_request_factor: Optional[str] = Query(None, **_CRF_QUERY),
+    max_budget: Optional[float] = _MAX_BUDGET_QUERY,
+    exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
+    provider_mode: bool = _PROVIDER_MODE_QUERY,
 ):
     try:
-        html = _render_chart(request, time_interval, capacity_unit, capacity_request_factor, "inflection", "linear")
+        html = _render_chart(request, time_interval, capacity_unit, capacity_request_factor, "inflection", "linear",
+                             provider_mode, max_budget, exclude_plan_price)
         return Response(content=html, media_type="text/html")
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))

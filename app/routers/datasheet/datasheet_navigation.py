@@ -28,13 +28,13 @@ def get_plans(request: NavRequest):
 
 
 @router.post("/endpoints", response_model=NavEndpointsResponse, **_EX,
-             summary="List endpoints. Optionally filter by plan_name; omit for union across all plans.")
+             summary="List endpoints. Optionally filter by plan_names; omit for union across all plans.")
 def get_endpoints(request: NavRequest):
     yaml_data = load_yaml_source(request.datasheet_source)
     try:
         return NavEndpointsResponse(
-            plan=request.plan_name,
-            endpoints=evaluator_service.get_endpoints(yaml_data, request.plan_name),
+            plans=request.plan_names,
+            endpoints=evaluator_service.get_endpoints(yaml_data, request.plan_names),
         )
     except KeyError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -46,10 +46,10 @@ def get_capacity_units(request: NavRequest):
     yaml_data = load_yaml_source(request.datasheet_source)
     try:
         units = evaluator_service.get_capacity_units(
-            yaml_data, request.plan_name, request.endpoint_path
+            yaml_data, request.plan_names, request.endpoint_path
         )
         return NavCapacityUnitsResponse(
-            plan=request.plan_name,
+            plans=request.plan_names,
             endpoint=request.endpoint_path,
             units=units,
         )
@@ -63,10 +63,10 @@ def get_aliases(request: NavRequest):
     yaml_data = load_yaml_source(request.datasheet_source)
     try:
         aliases = evaluator_service.get_aliases(
-            yaml_data, request.plan_name, request.endpoint_path
+            yaml_data, request.plan_names, request.endpoint_path
         )
         return NavAliasesResponse(
-            plan=request.plan_name,
+            plans=request.plan_names,
             endpoint=request.endpoint_path,
             aliases=aliases,
         )
@@ -80,10 +80,10 @@ def get_crf_ranges(request: NavRequest):
     yaml_data = load_yaml_source(request.datasheet_source)
     try:
         raw = evaluator_service.get_crf_ranges(
-            yaml_data, request.plan_name, request.endpoint_path
+            yaml_data, request.plan_names, request.endpoint_path
         )
         return NavCRFRangesResponse(
-            plan=request.plan_name,
+            plans=request.plan_names,
             endpoint=request.endpoint_path,
             crf_ranges=[CRFRange(**r) for r in raw],
         )

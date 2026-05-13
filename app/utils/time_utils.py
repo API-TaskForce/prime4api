@@ -101,6 +101,18 @@ def rearrange_time_axis_function(label, original_times_ms, calls, ax, fig, plan_
     ax.legend()
     fig.canvas.draw_idle()
 
+_SINGULAR_TIME_ALIASES = {
+    'ms': '1ms',
+    's': '1s', 'second': '1s', 'seconds': '1s',
+    'min': '1min', 'minute': '1min', 'minutes': '1min',
+    'h': '1h', 'hour': '1h', 'hours': '1h',
+    'day': '1day', 'days': '1day',
+    'week': '1week', 'weeks': '1week',
+    'month': '1month', 'months': '1month',
+    'year': '1year', 'years': '1year',
+}
+
+
 def parse_time_string_to_duration(time_string: str) -> TimeDuration:
     """
     Convierte una cadena de tiempo formateada (e.g., '2.5s') en una instancia de TimeDuration.
@@ -123,6 +135,8 @@ def parse_time_string_to_duration(time_string: str) -> TimeDuration:
     }
 
     time_string = time_string.replace(" ", "")
+    # Soporta nombres singulares/plurales sin número: "second" → "1s", "day" → "1day", etc.
+    time_string = _SINGULAR_TIME_ALIASES.get(time_string.lower(), time_string)
     pattern = r'(\d+(\.\d+)?)(ms|s|min|h|day|week|month|year)'
     matches = re.findall(pattern, time_string)
 

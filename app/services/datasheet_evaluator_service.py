@@ -2,6 +2,10 @@ from typing import List, Dict, Any, Optional
 from app.schemas.datasheet import EvaluateDatasheetRequest, EvaluateDatasheetResultItem, DimensionResult
 from app.services.basic_operations_service import BasicOperationsService
 from app.models import Rate, Quota
+from app.models.quota import OverageCost
+from app.services.budget_service import BudgetService
+
+_budget_service = BudgetService()
 from app.engine.time_models import TimeDuration, TimeUnit
 
 # Campos propios de un endpoint — todo lo que no esté aquí es un alias
@@ -42,10 +46,14 @@ class DatasheetEvaluatorService:
         if quota_key not in capacity_defs:
             raise KeyError(f"Quota definition '{quota_key}' not found in capacity definitions.")
         q_def = capacity_defs[quota_key]
+        overage_cost = None
+        if oc := q_def.get("overage_cost"):
+            overage_cost = OverageCost(price=float(oc["price"]), value=float(oc.get("value", 1.0)))
         return Quota(
             value=float(q_def["value"]),
             unit=str(q_def["unit"]),
-            period=self._normalize_period(q_def["period"])
+            period=self._normalize_period(q_def["period"]),
+            overage_cost=overage_cost,
         )
 
     def _parse_rates(self, rate_def, max_power_defs: dict) -> List[Rate]:
@@ -195,15 +203,33 @@ class DatasheetEvaluatorService:
 
     # ── Navigation helpers ────────────────────────────────────────────────────
 
+    def get_plan_pricing(self, yaml_data: dict, plan_name: str) -> dict:
+        """Returns {price, period_ms, currency} for a plan."""
+        plans = yaml_data.get("plans", {})
+        if plan_name not in plans:
+            raise KeyError(f"Plan '{plan_name}' not found.")
+        plan_data = plans[plan_name]
+        currency = str(yaml_data.get("currency", "USD"))
+        price = float(plan_data.get("price", 0.0))
+        period_def = plan_data.get("period") or plan_data.get("billing_period") or {"value": 1, "unit": "MONTH"}
+        period_ms = self._normalize_period(period_def)
+        if isinstance(period_ms, str):
+            from app.utils.time_utils import parse_time_string_to_duration
+            period_ms = parse_time_string_to_duration(period_ms).to_milliseconds()
+        else:
+            period_ms = period_ms.to_milliseconds()
+        return {"price": price, "period_ms": period_ms, "currency": currency}
+
     def get_plans(self, yaml_data: dict) -> List[str]:
         return list(yaml_data.get("plans", {}).keys())
 
-    def get_endpoints(self, yaml_data: dict, plan_name: Optional[str] = None) -> List[str]:
+    def get_endpoints(self, yaml_data: dict, plan_names: Optional[List[str]] = None) -> List[str]:
         plans = yaml_data.get("plans", {})
-        if plan_name:
-            if plan_name not in plans:
-                raise KeyError(f"Plan '{plan_name}' not found. Available: {list(plans.keys())}")
-            plans_to_scan = {plan_name: plans[plan_name]}
+        if plan_names:
+            unknown = [p for p in plan_names if p not in plans]
+            if unknown:
+                raise KeyError(f"Plans not found: {unknown}. Available: {list(plans.keys())}")
+            plans_to_scan = {k: plans[k] for k in plan_names}
         else:
             plans_to_scan = plans
         seen: list = []
@@ -213,12 +239,13 @@ class DatasheetEvaluatorService:
                     seen.append(ep)
         return seen
 
-    def get_capacity_units(self, yaml_data: dict, plan_name: Optional[str] = None, endpoint_path: Optional[str] = None) -> List[str]:
+    def get_capacity_units(self, yaml_data: dict, plan_names: Optional[List[str]] = None, endpoint_path: Optional[str] = None) -> List[str]:
         plans = yaml_data.get("plans", {})
-        if plan_name:
-            if plan_name not in plans:
-                raise KeyError(f"Plan '{plan_name}' not found. Available: {list(plans.keys())}")
-            plans_to_scan = {plan_name: plans[plan_name]}
+        if plan_names:
+            unknown = [p for p in plan_names if p not in plans]
+            if unknown:
+                raise KeyError(f"Plans not found: {unknown}. Available: {list(plans.keys())}")
+            plans_to_scan = {k: plans[k] for k in plan_names}
         else:
             plans_to_scan = plans
         seen: list = []
@@ -248,12 +275,13 @@ class DatasheetEvaluatorService:
                         seen.append(u)
         return seen
 
-    def get_aliases(self, yaml_data: dict, plan_name: Optional[str] = None, endpoint_path: Optional[str] = None) -> Optional[List[str]]:
+    def get_aliases(self, yaml_data: dict, plan_names: Optional[List[str]] = None, endpoint_path: Optional[str] = None) -> Optional[List[str]]:
         plans = yaml_data.get("plans", {})
-        if plan_name:
-            if plan_name not in plans:
-                raise KeyError(f"Plan '{plan_name}' not found. Available: {list(plans.keys())}")
-            plans_to_scan = {plan_name: plans[plan_name]}
+        if plan_names:
+            unknown = [p for p in plan_names if p not in plans]
+            if unknown:
+                raise KeyError(f"Plans not found: {unknown}. Available: {list(plans.keys())}")
+            plans_to_scan = {k: plans[k] for k in plan_names}
         else:
             plans_to_scan = plans
         seen: list = []
@@ -281,12 +309,13 @@ class DatasheetEvaluatorService:
             raw = list(ep_config.get("workload") or [])
         return raw
 
-    def get_crf_ranges(self, yaml_data: dict, plan_name: Optional[str] = None, endpoint_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_crf_ranges(self, yaml_data: dict, plan_names: Optional[List[str]] = None, endpoint_path: Optional[str] = None) -> List[Dict[str, Any]]:
         plans = yaml_data.get("plans", {})
-        if plan_name:
-            if plan_name not in plans:
-                raise KeyError(f"Plan '{plan_name}' not found. Available: {list(plans.keys())}")
-            plans_to_scan = {plan_name: plans[plan_name]}
+        if plan_names:
+            unknown = [p for p in plan_names if p not in plans]
+            if unknown:
+                raise KeyError(f"Plans not found: {unknown}. Available: {list(plans.keys())}")
+            plans_to_scan = {k: plans[k] for k in plan_names}
         else:
             plans_to_scan = plans
         # Collect broadest range per unit across all matching plans/endpoints
@@ -323,10 +352,11 @@ class DatasheetEvaluatorService:
         max_power_defs = yaml_data.get("max_power", {}) or {}
         plans = yaml_data.get("plans", {})
 
-        if request.plan_name:
-            if request.plan_name not in plans:
-                raise KeyError(f"Plan '{request.plan_name}' not found.")
-            plans_to_process = {request.plan_name: plans[request.plan_name]}
+        if request.plan_names:
+            unknown = [p for p in request.plan_names if p not in plans]
+            if unknown:
+                raise KeyError(f"Plans not found: {unknown}. Valid plans: {list(plans.keys())}")
+            plans_to_process = {k: plans[k] for k in request.plan_names}
         else:
             plans_to_process = plans
 
@@ -389,15 +419,19 @@ class DatasheetEvaluatorService:
 
     def evaluate(self, yaml_data: dict, request: EvaluateDatasheetRequest,
                  capacity_unit: Optional[str] = None,
-                 capacity_request_factor: Optional[Dict[str, float]] = None) -> Dict[str, List[EvaluateDatasheetResultItem]]:
+                 capacity_request_factor: Optional[Dict[str, float]] = None,
+                 provider_mode: bool = False,
+                 max_budget: Optional[float] = None,
+                 exclude_plan_price: bool = False) -> Dict[str, List[EvaluateDatasheetResultItem]]:
         capacity_defs  = yaml_data.get("capacity", {}) or {}
         max_power_defs = yaml_data.get("max_power", {}) or {}
         plans = yaml_data.get("plans", {})
 
-        if request.plan_name:
-            if request.plan_name not in plans:
-                raise KeyError(f"Plan '{request.plan_name}' not found. Valid plans are: {list(plans.keys())}")
-            plans_to_process = {request.plan_name: plans[request.plan_name]}
+        if request.plan_names:
+            unknown = [p for p in request.plan_names if p not in plans]
+            if unknown:
+                raise KeyError(f"Plans not found: {unknown}. Valid plans: {list(plans.keys())}")
+            plans_to_process = {k: plans[k] for k in request.plan_names}
         else:
             plans_to_process = plans
 
@@ -412,6 +446,9 @@ class DatasheetEvaluatorService:
                 request=request,
                 capacity_unit=capacity_unit,
                 capacity_request_factor=capacity_request_factor,
+                provider_mode=provider_mode,
+                max_budget=max_budget,
+                exclude_plan_price=exclude_plan_price,
             )
 
         return results
@@ -419,7 +456,11 @@ class DatasheetEvaluatorService:
     def _evaluate_plan(self, plan_name: str, plan_data: dict, capacity_defs: dict,
                        max_power_defs: dict, request: EvaluateDatasheetRequest,
                        capacity_unit: Optional[str] = None,
-                       capacity_request_factor: Optional[Dict[str, float]] = None) -> List[EvaluateDatasheetResultItem]:
+                       capacity_request_factor: Optional[Dict[str, float]] = None,
+                       provider_mode: bool = False,
+                       max_budget: Optional[float] = None,
+                       exclude_plan_price: bool = False) -> List[EvaluateDatasheetResultItem]:
+        plan_price = float(plan_data.get("price", 0.0))
         endpoints_data = plan_data.get("endpoints", {}) or {}
 
         plan_rates: List[Rate] = []
@@ -473,6 +514,10 @@ class DatasheetEvaluatorService:
                         operation_params=request.operation_params,
                         capacity_unit=capacity_unit,
                         capacity_request_factor=capacity_request_factor,
+                        provider_mode=provider_mode,
+                        max_budget=max_budget,
+                        exclude_plan_price=exclude_plan_price,
+                        plan_price=plan_price,
                     )
                     results.append(EvaluateDatasheetResultItem(
                         endpoint=ep_path, alias=alias_name, result=res
@@ -491,6 +536,10 @@ class DatasheetEvaluatorService:
                     operation_params=request.operation_params,
                     capacity_unit=capacity_unit,
                     capacity_request_factor=capacity_request_factor,
+                    provider_mode=provider_mode,
+                    max_budget=max_budget,
+                    exclude_plan_price=exclude_plan_price,
+                    plan_price=plan_price,
                 )
                 results.append(EvaluateDatasheetResultItem(
                     endpoint=ep_path, alias=None, result=res
@@ -502,7 +551,11 @@ class DatasheetEvaluatorService:
                       inherited_rates: List[Rate], inherited_quotas: List[Quota],
                       operation: str, operation_params: dict,
                       capacity_unit: Optional[str] = None,
-                      capacity_request_factor: Optional[Dict[str, float]] = None) -> Any:
+                      capacity_request_factor: Optional[Dict[str, float]] = None,
+                      provider_mode: bool = False,
+                      max_budget: Optional[float] = None,
+                      exclude_plan_price: bool = False,
+                      plan_price: float = 0.0) -> Any:
 
         rates: List[Rate] = list(inherited_rates)
         if rate_def := node_config.get("rate"):
@@ -514,6 +567,9 @@ class DatasheetEvaluatorService:
 
         if not rates and not quotas:
             raise ValueError(f"Neither rate nor quota could be resolved for node config: {node_config}")
+
+        if max_budget is not None and quotas:
+            quotas, _, _ = _budget_service.expand_quotas(quotas, plan_price, max_budget, exclude_plan_price)
 
         # Resolve method — get_ operations bypass dimension logic entirely
         method_name = f"calculate_{operation}"
@@ -541,6 +597,8 @@ class DatasheetEvaluatorService:
             kwargs = dict(operation_params)
             kwargs["rate"]  = rates if rates else None
             kwargs["quota"] = quotas if quotas else None
+            if is_calc:
+                kwargs["provider_mode"] = provider_mode
             try:
                 result = method(**kwargs)
             except TypeError as e:
@@ -564,6 +622,7 @@ class DatasheetEvaluatorService:
             kwargs = dict(operation_params)
             kwargs["rate"]  = sc_rates if sc_rates else None
             kwargs["quota"] = sc_quotas if sc_quotas else None
+            kwargs["provider_mode"] = provider_mode
             print(f"[BR] dimension='{dimension}' workload_factor={wf} → rates={[(r.value, r.unit) for r in sc_rates]} quotas={[(q.value, q.unit) for q in sc_quotas]}")
             try:
                 value = method(**kwargs)

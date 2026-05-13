@@ -5,9 +5,9 @@ from typing import Optional, Union, List
 
 class BasicOperationsService:
 
-    def calculate_min_time(self, capacity_goal: int, rate: Optional[Union[Rate, List[Rate]]] = None, quota: Optional[Union[Quota, List[Quota]]] = None) -> str:
+    def calculate_min_time(self, capacity_goal: int, rate: Optional[Union[Rate, List[Rate]]] = None, quota: Optional[Union[Quota, List[Quota]]] = None, provider_mode: bool = False) -> str:
         try:
-            evaluator = BoundedRate(rate, quota)
+            evaluator = BoundedRate(rate, quota, provider_mode=provider_mode)
         except ValueError as e:
             raise ValueError(f"Error creating BoundedRate: {str(e)}")
 
@@ -16,9 +16,9 @@ class BasicOperationsService:
         except ValueError as e:
             raise ValueError(f"Error calculating min_time: {str(e)}")
 
-    def calculate_capacity_at(self, time: str, rate: Optional[Union[Rate, List[Rate]]] = None, quota: Optional[Union[Quota, List[Quota]]] = None) -> float:
+    def calculate_capacity_at(self, time: str, rate: Optional[Union[Rate, List[Rate]]] = None, quota: Optional[Union[Quota, List[Quota]]] = None, provider_mode: bool = False) -> float:
         try:
-            evaluator = BoundedRate(rate, quota)
+            evaluator = BoundedRate(rate, quota, provider_mode=provider_mode)
         except ValueError as e:
             raise ValueError(f"Error creating BoundedRate: {str(e)}")
 
@@ -27,9 +27,9 @@ class BasicOperationsService:
         except ValueError as e:
             raise ValueError(f"Error calculating capacity_at: {str(e)}")
 
-    def calculate_capacity_during(self, end_instant: str, rate: Optional[Union[Rate, List[Rate]]] = None, quota: Optional[Union[Quota, List[Quota]]] = None, start_instant: str = "0ms") -> float:
+    def calculate_capacity_during(self, end_instant: str, rate: Optional[Union[Rate, List[Rate]]] = None, quota: Optional[Union[Quota, List[Quota]]] = None, start_instant: str = "0ms", provider_mode: bool = False) -> float:
         try:
-            evaluator = BoundedRate(rate, quota)
+            evaluator = BoundedRate(rate, quota, provider_mode=provider_mode)
         except ValueError as e:
             raise ValueError(f"Error creating BoundedRate: {str(e)}")
 
@@ -38,9 +38,9 @@ class BasicOperationsService:
         except ValueError as e:
             raise ValueError(f"Error calculating capacity_during: {str(e)}")
 
-    def calculate_quota_exhaustion_threshold(self, rate: Optional[Union[Rate, List[Rate]]] = None, quota: Optional[Union[Quota, List[Quota]]] = None) -> list:
+    def calculate_quota_exhaustion_threshold(self, rate: Optional[Union[Rate, List[Rate]]] = None, quota: Optional[Union[Quota, List[Quota]]] = None, provider_mode: bool = False) -> list:
         try:
-            evaluator = BoundedRate(rate, quota)
+            evaluator = BoundedRate(rate, quota, provider_mode=provider_mode)
         except ValueError as e:
             raise ValueError(f"Error creating BoundedRate: {str(e)}")
 
@@ -63,9 +63,9 @@ class BasicOperationsService:
         quotas = [quota] if isinstance(quota, Quota) else (quota or [])
         return rates + quotas
 
-    def calculate_idle_time_period(self, rate: Optional[Union[Rate, List[Rate]]] = None, quota: Optional[Union[Quota, List[Quota]]] = None) -> list:
+    def calculate_idle_time_period(self, rate: Optional[Union[Rate, List[Rate]]] = None, quota: Optional[Union[Quota, List[Quota]]] = None, provider_mode: bool = False) -> list:
         try:
-            evaluator = BoundedRate(rate, quota)
+            evaluator = BoundedRate(rate, quota, provider_mode=provider_mode)
         except ValueError as e:
             raise ValueError(f"Error creating BoundedRate: {str(e)}")
 

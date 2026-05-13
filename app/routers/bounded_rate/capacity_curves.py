@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.schemas.capacity_curves import CapacityCurvePointsResponse, CapacityCurveRequest
 from app.services.capacity_curve_service import CapacityCurveService
 
 router = APIRouter()
 service = CapacityCurveService()
+
+_PROVIDER_MODE_QUERY = Query(False, description="Provider-centric semantics: capacity is counted at the end of each period window instead of the start. Default: False (client-centric).")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -21,10 +23,10 @@ service = CapacityCurveService()
         "The client is responsible for rendering the data."
     ),
 )
-def get_accumulated_curve_data(request: CapacityCurveRequest):
+def get_accumulated_curve_data(request: CapacityCurveRequest, provider_mode: bool = _PROVIDER_MODE_QUERY):
     try:
         points = service.get_accumulated_capacity_curve(
-            request.time_interval, request.rate, request.quota
+            request.time_interval, request.rate, request.quota, provider_mode=provider_mode
         )
         return CapacityCurvePointsResponse(
             t_ms=points.t_ms,
@@ -47,10 +49,10 @@ def get_accumulated_curve_data(request: CapacityCurveRequest):
         "Recommended rendering: step function (shape='hv')."
     ),
 )
-def get_inflection_curve_data(request: CapacityCurveRequest):
+def get_inflection_curve_data(request: CapacityCurveRequest, provider_mode: bool = _PROVIDER_MODE_QUERY):
     try:
         points = service.get_inflection_point_capacity_curve(
-            request.time_interval, request.rate, request.quota
+            request.time_interval, request.rate, request.quota, provider_mode=provider_mode
         )
         return CapacityCurvePointsResponse(
             t_ms=points.t_ms,
@@ -82,10 +84,10 @@ def get_inflection_curve_data(request: CapacityCurveRequest):
         "Designed to be embedded directly in a chatbot or browser."
     ),
 )
-def get_accumulated_curve_chart(request: CapacityCurveRequest):
+def get_accumulated_curve_chart(request: CapacityCurveRequest, provider_mode: bool = _PROVIDER_MODE_QUERY):
     try:
         html = service.render_accumulated_curve_html(
-            request.time_interval, request.rate, request.quota
+            request.time_interval, request.rate, request.quota, provider_mode=provider_mode
         )
         return Response(content=html, media_type="text/html")
     except ValueError as e:
@@ -107,10 +109,10 @@ def get_accumulated_curve_chart(request: CapacityCurveRequest):
         "Designed to be embedded directly in a chatbot or browser."
     ),
 )
-def get_inflection_curve_chart(request: CapacityCurveRequest):
+def get_inflection_curve_chart(request: CapacityCurveRequest, provider_mode: bool = _PROVIDER_MODE_QUERY):
     try:
         html = service.render_inflection_point_curve_html(
-            request.time_interval, request.rate, request.quota
+            request.time_interval, request.rate, request.quota, provider_mode=provider_mode
         )
         return Response(content=html, media_type="text/html")
     except ValueError as e:

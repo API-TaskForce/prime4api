@@ -23,7 +23,7 @@ class CaseResult(BaseModel):
 
 class EvaluateDatasheetRequest(BaseModel):
     datasheet_source: str = Field(..., description="The raw YAML text OR a valid URI to download the file.")
-    plan_name: Optional[str] = Field(None, description="The target billing plan (e.g., 'free', 'pro'). If omitted, evaluates ALL plans.")
+    plan_names: Optional[List[str]] = Field(None, description="Filter to one or more billing plans (e.g., ['pro', 'ultra']). If omitted, evaluates ALL plans.")
     endpoint_path: Optional[str] = Field(None, description="The specific endpoint. If omitted, will evaluate ALL endpoints.")
     alias: Optional[str] = Field(None, description="Filter by alias. If omitted, evaluates ALL existing aliases.")
     operation: str = Field(..., description="The calculation to perform: 'min_time', 'capacity_at', 'idle_time', etc.")
@@ -48,7 +48,7 @@ class EvaluateDatasheetResponse(BaseModel):
 
 class DatasheetBaseRequest(BaseModel):
     datasheet_source: str = Field(..., description="Raw YAML text OR a valid URI to download the datasheet.")
-    plan_name: Optional[str] = Field(None, description="The target billing plan (e.g., 'free', 'pro'). If omitted, evaluates ALL plans.")
+    plan_names: Optional[List[str]] = Field(None, description="Filter to one or more billing plans (e.g., ['pro', 'ultra']). If omitted, evaluates ALL plans.")
     endpoint_path: Optional[str] = Field(None, description="Filter by endpoint. If omitted, evaluates ALL endpoints.")
     alias: Optional[str] = Field(None, description="Filter by alias. If omitted, evaluates ALL aliases.")
 
@@ -160,7 +160,7 @@ class DatasheetCurveDataResponse(BaseModel):
 
 class NavRequest(BaseModel):
     datasheet_source: str = Field(..., description="Raw YAML text OR URI to the datasheet.")
-    plan_name: Optional[str] = Field(None, description="Filter by billing plan (e.g. 'free', 'pro'). If omitted, all plans are considered.")
+    plan_names: Optional[List[str]] = Field(None, description="Filter by one or more billing plans (e.g., ['pro', 'ultra']). If omitted, all plans are considered.")
     endpoint_path: Optional[str] = Field(None, description="Filter by endpoint path (e.g. '/mail/send'). If omitted, all endpoints are considered.")
 
 
@@ -172,16 +172,16 @@ class NavPlansResponse(BaseModel):
     plans: List[str]
 
 class NavEndpointsResponse(BaseModel):
-    plan: Optional[str] = None
+    plans: Optional[List[str]] = None
     endpoints: List[str]
 
 class NavCapacityUnitsResponse(BaseModel):
-    plan: Optional[str] = None
+    plans: Optional[List[str]] = None
     endpoint: Optional[str] = None
     units: List[str]
 
 class NavAliasesResponse(BaseModel):
-    plan: Optional[str] = None
+    plans: Optional[List[str]] = None
     endpoint: Optional[str] = None
     aliases: Optional[List[str]] = None
 
@@ -192,6 +192,6 @@ class CRFRange(BaseModel):
     description: Optional[str] = None
 
 class NavCRFRangesResponse(BaseModel):
-    plan: Optional[str] = None
+    plans: Optional[List[str]] = None
     endpoint: Optional[str] = None
     crf_ranges: List[CRFRange]

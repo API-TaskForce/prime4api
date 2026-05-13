@@ -22,11 +22,15 @@ from app.utils.yaml_utils import load_yaml_source
 router = APIRouter()
 evaluator_service = DatasheetEvaluatorService()
 
+_PROVIDER_MODE_QUERY = Query(False, description="Provider-centric semantics: capacity is counted at the end of each period window instead of the start. Default: False (client-centric).")
+_MAX_BUDGET_QUERY   = Query(None, description="Optional budget. Elastic quotas (overage_cost) are expanded after paying the plan price.")
+_EXCLUDE_PLAN_QUERY = Query(False, description="If True, treat max_budget as pure overage budget (plan price already covered).")
+
 
 def _build_request(base: DatasheetBaseRequest, operation: str, operation_params: dict) -> EvaluateDatasheetRequest:
     return EvaluateDatasheetRequest(
         datasheet_source=base.datasheet_source,
-        plan_name=base.plan_name,
+        plan_names=base.plan_names,
         endpoint_path=base.endpoint_path,
         alias=base.alias,
         operation=operation,
@@ -83,6 +87,9 @@ def get_min_time(
     capacity_goal: int = Query(..., description="Number of units to reach"),
     capacity_unit: Optional[str] = Query(None, description="Unit dimension to filter results (e.g. 'emails', 'requests'). Returns all if omitted."),
     capacity_request_factor: Optional[str] = Query(None, description="Fixed workload per unit. Plain number (e.g. '500') requires capacity_unit. JSON dict (e.g. '{\"emails\":500,\"MBs\":0.256}') sets multiple units at once."),
+    max_budget: Optional[float] = _MAX_BUDGET_QUERY,
+    exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
+    provider_mode: bool = _PROVIDER_MODE_QUERY,
 ):
     yaml_data = load_yaml_source(request.datasheet_source)
     try:
@@ -91,6 +98,9 @@ def get_min_time(
             _build_request(request, "min_time", {"capacity_goal": capacity_goal}),
             capacity_unit=capacity_unit,
             capacity_request_factor=_parse_crf(capacity_unit, capacity_request_factor),
+            provider_mode=provider_mode,
+            max_budget=max_budget,
+            exclude_plan_price=exclude_plan_price,
         )
         return DatasheetMinTimeResponse(
             capacity_goal=capacity_goal,
@@ -111,6 +121,9 @@ def get_capacity_at(
     time: str = Query(..., description="Time instant (e.g. '1h', '1day')"),
     capacity_unit: Optional[str] = Query(None, description="Unit dimension to filter results (e.g. 'emails', 'requests'). Returns all if omitted."),
     capacity_request_factor: Optional[str] = Query(None, description="Fixed workload per unit. Plain number (e.g. '500') requires capacity_unit. JSON dict (e.g. '{\"emails\":500,\"MBs\":0.256}') sets multiple units at once."),
+    max_budget: Optional[float] = _MAX_BUDGET_QUERY,
+    exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
+    provider_mode: bool = _PROVIDER_MODE_QUERY,
 ):
     yaml_data = load_yaml_source(request.datasheet_source)
     try:
@@ -119,6 +132,9 @@ def get_capacity_at(
             _build_request(request, "capacity_at", {"time": time}),
             capacity_unit=capacity_unit,
             capacity_request_factor=_parse_crf(capacity_unit, capacity_request_factor),
+            provider_mode=provider_mode,
+            max_budget=max_budget,
+            exclude_plan_price=exclude_plan_price,
         )
         return DatasheetCapacityAtResponse(
             time=time,
@@ -140,6 +156,9 @@ def get_capacity_during(
     start_instant: Optional[str] = Query("0ms", description="Start time instant (e.g. '0ms')"),
     capacity_unit: Optional[str] = Query(None, description="Unit dimension to filter results (e.g. 'emails', 'requests'). Returns all if omitted."),
     capacity_request_factor: Optional[str] = Query(None, description="Fixed workload per unit. Plain number (e.g. '500') requires capacity_unit. JSON dict (e.g. '{\"emails\":500,\"MBs\":0.256}') sets multiple units at once."),
+    max_budget: Optional[float] = _MAX_BUDGET_QUERY,
+    exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
+    provider_mode: bool = _PROVIDER_MODE_QUERY,
 ):
     yaml_data = load_yaml_source(request.datasheet_source)
     try:
@@ -148,6 +167,9 @@ def get_capacity_during(
             _build_request(request, "capacity_during", {"end_instant": end_instant, "start_instant": start_instant}),
             capacity_unit=capacity_unit,
             capacity_request_factor=_parse_crf(capacity_unit, capacity_request_factor),
+            provider_mode=provider_mode,
+            max_budget=max_budget,
+            exclude_plan_price=exclude_plan_price,
         )
         return DatasheetCapacityDuringResponse(
             start_instant=start_instant,
@@ -168,6 +190,9 @@ def get_quota_exhaustion_threshold(
     request: DatasheetBaseRequest,
     capacity_unit: Optional[str] = Query(None, description="Unit dimension to filter results (e.g. 'emails', 'requests'). Returns all if omitted."),
     capacity_request_factor: Optional[str] = Query(None, description="Fixed workload per unit. Plain number (e.g. '500') requires capacity_unit. JSON dict (e.g. '{\"emails\":500,\"MBs\":0.256}') sets multiple units at once."),
+    max_budget: Optional[float] = _MAX_BUDGET_QUERY,
+    exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
+    provider_mode: bool = _PROVIDER_MODE_QUERY,
 ):
     yaml_data = load_yaml_source(request.datasheet_source)
     try:
@@ -176,6 +201,9 @@ def get_quota_exhaustion_threshold(
             _build_request(request, "quota_exhaustion_threshold", {}),
             capacity_unit=capacity_unit,
             capacity_request_factor=_parse_crf(capacity_unit, capacity_request_factor),
+            provider_mode=provider_mode,
+            max_budget=max_budget,
+            exclude_plan_price=exclude_plan_price,
         )
         return DatasheetQuotaExhaustionResponse(
             results={
@@ -194,6 +222,9 @@ def get_idle_time_period(
     request: DatasheetBaseRequest,
     capacity_unit: Optional[str] = Query(None, description="Unit dimension to filter results (e.g. 'emails', 'requests'). Returns all if omitted."),
     capacity_request_factor: Optional[str] = Query(None, description="Fixed workload per unit. Plain number (e.g. '500') requires capacity_unit. JSON dict (e.g. '{\"emails\":500,\"MBs\":0.256}') sets multiple units at once."),
+    max_budget: Optional[float] = _MAX_BUDGET_QUERY,
+    exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
+    provider_mode: bool = _PROVIDER_MODE_QUERY,
 ):
     yaml_data = load_yaml_source(request.datasheet_source)
     try:
@@ -202,6 +233,9 @@ def get_idle_time_period(
             _build_request(request, "idle_time_period", {}),
             capacity_unit=capacity_unit,
             capacity_request_factor=_parse_crf(capacity_unit, capacity_request_factor),
+            provider_mode=provider_mode,
+            max_budget=max_budget,
+            exclude_plan_price=exclude_plan_price,
         )
         return DatasheetIdleTimePeriodResponse(
             results={

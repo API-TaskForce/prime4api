@@ -14,7 +14,9 @@ class BoundedRate:
         self,
         rate: Union[Rate, List[Rate], None] = None,
         quota: Union[Quota, List[Quota], None] = None,
+        provider_mode: bool = False,
     ):
+        self._provider_mode = provider_mode
         rates = [rate] if isinstance(rate, Rate) else (rate or [])
         quotas = [quota] if isinstance(quota, Quota) else (quota or [])
 
@@ -37,6 +39,7 @@ class BoundedRate:
 
             temp_br = object.__new__(BoundedRate)
             temp_br.limits = self.limits.copy()
+            temp_br._provider_mode = provider_mode
 
             capacity = temp_br.capacity_at(candidate.period)
 
@@ -65,7 +68,8 @@ class BoundedRate:
             value, period = self.limits[limits_length].value, self.limits[limits_length].period.to_milliseconds()
 
             if limits_length == 0:
-                c = value * np.floor((t_milliseconds / period) + 1)
+                offset = 0 if self._provider_mode else 1
+                c = value * np.floor((t_milliseconds / period) + offset)
             else:
                 ni = np.floor(t_milliseconds / period)  # determines which interval number (ni) 't' belongs to
                 qvalue = value * ni  # capacity due to quota
@@ -118,11 +122,18 @@ class BoundedRate:
 
         base = self.limits[0]
         c_r = base.value
-        if capacity_goal > c_r:
-            from math import ceil
-            batches = ceil(capacity_goal / c_r)
-            p_r_ms = base.period.to_milliseconds()
-            T += (batches - 1) * p_r_ms
+        if self._provider_mode:
+            if capacity_goal > 0:
+                from math import ceil
+                batches = ceil(capacity_goal / c_r)
+                p_r_ms = base.period.to_milliseconds()
+                T += batches * p_r_ms
+        else:
+            if capacity_goal > c_r:
+                from math import ceil
+                batches = ceil(capacity_goal / c_r)
+                p_r_ms = base.period.to_milliseconds()
+                T += (batches - 1) * p_r_ms
 
         result_duration = TimeDuration(int(T), TimeUnit.MILLISECOND)
         if T == 0:

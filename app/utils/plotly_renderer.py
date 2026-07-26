@@ -71,6 +71,7 @@ def render_multi_curve_html(
     line_shape: LineShape,
     x_unit_label: str,
     x_scale_divisor: float,
+    show_derived_requests: bool = False
 ) -> str:
     """
     Renders capacity curves with hierarchical navigation:
@@ -96,7 +97,7 @@ def render_multi_curve_html(
         dim     = s["dimension"]
 
         # Hide "requests" dimensions derived from a workload — only show wl_unit dims
-        if dim == "requests" and wl_unit:
+        if dim == "requests" and wl_unit and not show_derived_requests:
             continue
 
         display_hier.setdefault(plan, {}).setdefault(ep_key, {}).setdefault(dim, []).append(s)

@@ -23,6 +23,7 @@ _CRF_QUERY   = dict(description="Fixed workload per unit. Plain number (e.g. '50
 _PROVIDER_MODE_QUERY = Query(False, description="Provider-centric semantics: capacity is counted at the end of each period window instead of the start. Default: False (client-centric).")
 _MAX_BUDGET_QUERY = Query(None, description="Optional budget. Elastic quotas (those with overage_cost) are expanded as far as the budget allows after paying the plan price.")
 _EXCLUDE_PLAN_QUERY = Query(False, description="If True, treat max_budget as pure overage budget (plan price already covered).")
+_SHOW_DERIVED_REQUESTS_QUERY = Query(False, description="If True, also plot the 'requests' dimension derived from a workload. Hidden by default because it is usually redundant with a native requests limit.")
 
 
 def _build_nav_request(base: DatasheetBaseRequest) -> EvaluateDatasheetRequest:
@@ -94,7 +95,8 @@ def _apply_budget_to_scenarios(yaml_data: dict, scenarios: list, max_budget: Opt
 
 
 def _render_chart(base, time_interval, capacity_unit, capacity_request_factor, curve_type, line_shape,
-                  provider_mode: bool = False, max_budget: Optional[float] = None, exclude_plan_price: bool = False):
+                  provider_mode: bool = False, max_budget: Optional[float] = None, exclude_plan_price: bool = False,
+                 show_derived_requests: bool = False):
     data = _render_data(base, time_interval, capacity_unit, capacity_request_factor, curve_type,
                         provider_mode, max_budget, exclude_plan_price)
 
@@ -120,7 +122,7 @@ def _render_chart(base, time_interval, capacity_unit, capacity_request_factor, c
     x_unit_label, x_scale_divisor = _time_axis_params(time_interval)
     budget_tag = f" | budget ${max_budget}" if max_budget is not None else ""
     title = f"{'Accumulated' if curve_type == 'accumulated' else 'Inflection Point'} Capacity Curve — {time_interval}{budget_tag}"
-    return render_multi_curve_html(series_list, title, line_shape, x_unit_label, x_scale_divisor)
+    return render_multi_curve_html(series_list, title, line_shape, x_unit_label, x_scale_divisor, show_derived_requests=show_derived_requests)
 
 
 def _render_data(base, time_interval, capacity_unit, capacity_request_factor, curve_type,
@@ -221,10 +223,11 @@ def get_accumulated_chart(
     max_budget: Optional[float] = _MAX_BUDGET_QUERY,
     exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
     provider_mode: bool = _PROVIDER_MODE_QUERY,
+    show_derived_requests: bool = _SHOW_DERIVED_REQUESTS_QUERY,
 ):
     try:
         html = _render_chart(request, time_interval, capacity_unit, capacity_request_factor, "accumulated", "hv",
-                             provider_mode, max_budget, exclude_plan_price)
+                             provider_mode, max_budget, exclude_plan_price, show_derived_requests)
         return Response(content=html, media_type="text/html")
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -245,10 +248,11 @@ def get_inflection_chart(
     max_budget: Optional[float] = _MAX_BUDGET_QUERY,
     exclude_plan_price: bool = _EXCLUDE_PLAN_QUERY,
     provider_mode: bool = _PROVIDER_MODE_QUERY,
+    show_derived_requests: bool = _SHOW_DERIVED_REQUESTS_QUERY,
 ):
     try:
         html = _render_chart(request, time_interval, capacity_unit, capacity_request_factor, "inflection", "linear",
-                             provider_mode, max_budget, exclude_plan_price)
+                             provider_mode, max_budget, exclude_plan_price, show_derived_requests)
         return Response(content=html, media_type="text/html")
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))

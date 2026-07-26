@@ -273,6 +273,8 @@ class DatasheetEvaluatorService:
                     u = str(w["unit"])
                     if u not in seen:
                         seen.append(u)
+                    if "requests" not in seen:
+                        seen.append("requests")
         return seen
 
     def get_aliases(self, yaml_data: dict, plan_names: Optional[List[str]] = None, endpoint_path: Optional[str] = None) -> Optional[List[str]]:

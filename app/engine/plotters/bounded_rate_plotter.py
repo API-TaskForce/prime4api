@@ -65,6 +65,8 @@ class BoundedRatePlotter:
 
         points: List[Tuple[float, float]] = []
 
+        base_period_ms = int(self.br.limits[0].period.to_milliseconds())
+
         for idx, quota in enumerate(quotas):
             period_ms = int(quota.period.to_milliseconds())
             t_ast_ms = thresholds_ms_list[idx]
@@ -76,6 +78,15 @@ class BoundedRatePlotter:
 
                 # Punto inicio de ventana
                 points.append((float(window_start_ms), _capacity(window_start_ms)))
+
+                # Último batch completo del rate antes de que la cuota recorte.
+                # La rampa sólo es una recta desde el inicio de ventana hasta el
+                # exhaustion si la cuota es múltiplo exacto de la capacidad del
+                # rate; si no, el último batch se recorta y ahí hay un codo real.
+                if base_period_ms > 0 and t_ast_ms > base_period_ms:
+                    last_full_ms = window_start_ms + t_ast_ms - base_period_ms
+                    if last_full_ms < sim_ms:
+                        points.append((float(last_full_ms), _capacity(last_full_ms)))
 
                 # Punto de exhaustion (clamped a sim_ms)
                 exhaustion_ms = min(window_start_ms + t_ast_ms, sim_ms)
@@ -104,18 +115,22 @@ class BoundedRatePlotter:
                 seen[t] = c
         time_sorted = sorted(seen.items(), key=lambda x: x[0])
 
-        def _prune_plateaus(pts: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        def _prune_collinear(pts: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+            """Descarta los puntos que no cambian la pendiente (incluye mesetas)."""
             if len(pts) <= 2:
                 return list(pts)
             pruned = [pts[0]]
-            for prev, curr, nxt in zip(pts, pts[1:], pts[2:]):
-                if prev[1] == curr[1] == nxt[1]:
+            for curr, nxt in zip(pts[1:], pts[2:]):
+                prev = pruned[-1]
+                # Área del triángulo prev-curr-nxt: 0 ⇒ los tres alineados
+                cross = (curr[0] - prev[0]) * (nxt[1] - prev[1]) - (curr[1] - prev[1]) * (nxt[0] - prev[0])
+                if abs(cross) < 1e-6:
                     continue
                 pruned.append(curr)
             pruned.append(pts[-1])
             return pruned
 
-        pruned = _prune_plateaus(time_sorted)
+        pruned = _prune_collinear(time_sorted)
 
         return CapacityCurvePoints(
             t_ms=[t for t, _ in pruned],
